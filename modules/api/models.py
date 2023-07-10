@@ -101,6 +101,12 @@ StableDiffusionTxt2ImgProcessingAPI = PydanticModelGenerator(
         {"key": "send_images", "type": bool, "default": True},
         {"key": "save_images", "type": bool, "default": False},
         {"key": "alwayson_scripts", "type": dict, "default": {}},
+        {"key": "controlnet_enabled", "type":bool, "default":False},
+        {"key": "controlnet_model", "type":str, "default":None},
+        {"key": "controlnet_module", "type":str, "default":None},
+        {"key": "controlnet_pixel_perfect", "type":bool, "default":False},
+        {"key": "controlnet_weight", "type":float, "default":1.0},
+        {"key": "controlnet_image", "type":str ,"default":None}
     ]
 ).generate_model()
 
@@ -118,6 +124,12 @@ StableDiffusionImg2ImgProcessingAPI = PydanticModelGenerator(
         {"key": "send_images", "type": bool, "default": True},
         {"key": "save_images", "type": bool, "default": False},
         {"key": "alwayson_scripts", "type": dict, "default": {}},
+        {"key": "controlnet_enabled", "type":bool, "default":False},
+        {"key": "controlnet_model", "type":str, "default":None},
+        {"key": "controlnet_module", "type":str, "default":None},
+        {"key": "controlnet_pixel_perfect", "type":bool, "default":False},
+        {"key": "controlnet_weight", "type":float, "default":1.0},
+        {"key": "controlnet_image", "type":str ,"default":None}
     ]
 ).generate_model()
 
