@@ -232,6 +232,19 @@ class Api:
                     p.per_script_args[alwayson_script.title()] = request.alwayson_scripts[alwayson_script_name]["args"]
         return script_args
 
+    def controlnet_arg_injection(self, req, script_args, script_runner):
+        if not req.controlnet_enabled:
+            return
+        
+        controlnet_script = self.get_script("ControlNet", script_runner)
+        unit = script_args[controlnet_script.args_from]
+        unit.enabled = req.controlnet_enabled
+        unit.model = req.controlnet_model #"control_v11p_sd15_lineart [43d4be0d]"
+        unit.module = req.controlnet_module #"lineart_realistic"
+        unit.image = np.array(decode_base64_to_image(req.controlnet_image))
+        unit.pixel_perfect = req.controlnet_pixel_perfect
+        unit.weight = req.controlnet_weight
+
 
     def text2imgapi(self, txt2imgreq: models.StableDiffusionTxt2ImgProcessingAPI):
         script_runner = scripts.scripts_txt2img
@@ -254,6 +267,12 @@ class Api:
         args.pop('alwayson_scripts', None)
         send_images = args.pop('send_images', True)
         args.pop('save_images', None)
+        args.pop('controlnet_enabled', None)
+        args.pop('controlnet_model', None)
+        args.pop('controlnet_module', None)
+        args.pop('controlnet_pixel_perfect', None)
+        args.pop('controlnet_weight', None)
+        args.pop('controlnet_image', None)
 
         with self.queue_lock:
             p = StableDiffusionProcessingTxt2Img(sd_model=shared.sd_model, **args)
@@ -262,6 +281,7 @@ class Api:
             p.outpath_samples = shared.opts.outdir_samples or shared.opts.outdir_txt2img_samples
             shared.state.begin()
             script_args = self.init_script_args(p, txt2imgreq, self.default_script_arg_txt2img, selectable_scripts, selectable_script_idx, script_runner)
+            self.controlnet_arg_injection(txt2imgreq, script_args, script_runner)
             if selectable_scripts is not None:
                 processed = scripts.scripts_txt2img.run(p, *script_args) # Need to pass args as list here
             else:
@@ -301,6 +321,12 @@ class Api:
         args.pop('alwayson_scripts', None)
         send_images = args.pop('send_images', True)
         args.pop('save_images', None)
+        args.pop('controlnet_enabled', None)
+        args.pop('controlnet_model', None)
+        args.pop('controlnet_module', None)
+        args.pop('controlnet_pixel_perfect', None)
+        args.pop('controlnet_weight', None)
+        args.pop('controlnet_image', None)
 
         with self.queue_lock:
             p = StableDiffusionProcessingImg2Img(sd_model=shared.sd_model, **args)
@@ -310,6 +336,7 @@ class Api:
             p.outpath_samples = shared.opts.outdir_img2img_samples
             shared.state.begin()
             script_args = self.init_script_args(p, img2imgreq, self.default_script_arg_img2img, selectable_scripts, selectable_script_idx, script_runner)
+            self.controlnet_arg_injection(img2imgreq, script_args, script_runner)
             if selectable_scripts is not None:
                 processed = scripts.scripts_img2img.run(p, *script_args) # Need to pass args as list here
             else:
