@@ -1,6 +1,7 @@
 import io
 import time
 import base64
+import numpy as np
 from io import BytesIO
 from typing import List, Dict, Any
 from threading import Lock
