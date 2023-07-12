@@ -136,11 +136,12 @@ class ExtraNetworksPage:
                 continue
             try:
                 img = Image.open(f)
-                img = img.convert('RGB')
-                img.thumbnail((512, 512), Image.HAMMING)
-                img.save(fn)
-                img.close()
-                created += 1
+                if img.width > 1024 or img.height > 1024:
+                    img = img.convert('RGB')
+                    img.thumbnail((512, 512), Image.HAMMING)
+                    img.save(fn)
+                    img.close()
+                    created += 1
             except Exception as e:
                 shared.log.error(f'Extra network error creating thumbnail: {f} {e}')
         if len(self.missing_thumbs) > 0:
@@ -170,7 +171,7 @@ class ExtraNetworksPage:
             subdirs = OrderedDict(sorted(subdirs.items()))
             subdirs = {"": 1, **subdirs}
         subdirs_html = "".join([f"""
-            <button class='lg secondary gradio-button custom-button{" search-all" if subdir=="" else ""}' onclick='extraNetworksSearchButton("{tabname}_extra_tabs", event)'>
+            <button class='lg secondary gradio-button custom-button{" search-all" if subdir=="" else ""}' onclick='extraNetworksSearchButton(event)'>
                 {html.escape(subdir) if subdir!="" else "all"}
             </button><br>""" for subdir in subdirs])
         try:
@@ -215,12 +216,12 @@ class ExtraNetworksPage:
             "description": (item.get("description") or ""),
             "search_term": item.get("search_term", ""),
             "loading": "lazy" if shared.opts.extra_networks_card_lazy else "eager",
-            "card_click": item.get("onclick", '"' + html.escape(f"""return cardClicked({json.dumps(tabname)}, {item.get("prompt", None)}, {"true" if self.allow_negative_prompt else "false"})""") + '"'),
-            "card_save_desc": '"' + html.escape(f"""return saveCardDescription(event, {json.dumps(tabname)}, {json.dumps(item["local_preview"])})""") + '"',
-            "card_save_preview": '"' + html.escape(f"""return saveCardPreview(event, {json.dumps(tabname)}, {json.dumps(item["local_preview"])})""") + '"',
-            "card_read_desc": '"' + html.escape(f"""return readCardDescription(event, {json.dumps(tabname)}, {json.dumps(item["local_preview"])}, {json.dumps(item.get("description", ""))}, {json.dumps(self.name)}, {json.dumps(item["name"])})""") + '"',
+            "card_click": item.get("onclick", '"' + html.escape(f"""return cardClicked({item.get("prompt", None)}, {"true" if self.allow_negative_prompt else "false"})""") + '"'),
+            "card_read_desc": '"' + html.escape(f"""return readCardDescription(event, {json.dumps(item["local_preview"])}, {json.dumps(item.get("description", ""))})""") + '"',
+            "card_save_desc": '"' + html.escape(f"""return saveCardDescription(event, {json.dumps(item["local_preview"])})""") + '"',
             "card_read_meta": '"' + html.escape(f"""return readCardMetadata(event, {json.dumps(self.name)}, {json.dumps(item["name"])})""") + '"',
             "card_read_info": '"' + html.escape(f"""return readCardInformation(event, {json.dumps(self.name)}, {json.dumps(item["name"])})""") + '"',
+            "card_save_preview": '"' + html.escape(f"""return saveCardPreview(event, {json.dumps(item["local_preview"])})""") + '"',
         }
         self.card.format(**args)
         return self.card.format(**args)
@@ -305,8 +306,8 @@ def create_ui(container, button, tabname, skip_indexing = False):
     with gr.Tabs(elem_id=tabname+"_extra_tabs"):
         button_refresh = ToolButton(refresh_symbol, elem_id=tabname+"_extra_refresh")
         button_close = ToolButton(close_symbol, elem_id=tabname+"_extra_close")
-        ui.search = gr.Textbox('', show_label=False, elem_id=tabname+"_extra_search", placeholder="Search...", visible=True, elem_classes="textbox")
-        ui.description = gr.TextArea('', show_label=False, elem_id=tabname+"_description", placeholder="Save/Replace Extra Network Description...", lines=2, elem_classes="textbox")
+        ui.search = gr.Textbox('', show_label=False, elem_id=tabname+"_extra_search", placeholder="Search...", elem_classes="textbox", lines=1)
+        ui.description = gr.TextArea('', show_label=False, elem_id=tabname+"_description", placeholder="Save/Replace Extra Network Description...", elem_classes="textbox", lines=1)
 
         ui.button_save_preview = gr.Button('Save preview', elem_id=tabname+"_save_preview", visible=False)
         ui.preview_target_filename = gr.Textbox('Preview save filename', elem_id=tabname+"_preview_filename", visible=False)

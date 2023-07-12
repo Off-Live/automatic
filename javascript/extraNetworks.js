@@ -2,6 +2,8 @@ let globalPopup = null;
 let globalPopupInner = null;
 const activePromptTextarea = {};
 
+const getENActiveTab = () => gradioApp().getElementById('tab_txt2img').style.display == 'block' ? 'txt2img' : 'img2img';
+
 function setupExtraNetworksForTab(tabname) {
   gradioApp().querySelector(`#${tabname}_extra_tabs`).classList.add('extra-networks');
   const tabs = gradioApp().querySelector(`#${tabname}_extra_tabs > div`);
@@ -14,8 +16,11 @@ function setupExtraNetworksForTab(tabname) {
   description.classList.add('description');
   tabs.appendChild(refresh);
   tabs.appendChild(close);
-  tabs.appendChild(search);
-  tabs.appendChild(description);
+  div = document.createElement('div');
+  div.classList.add('second-line');
+  tabs.appendChild(div);
+  div.appendChild(search);
+  div.appendChild(description);
   search.addEventListener('input', (evt) => {
     searchTerm = search.value.toLowerCase();
     gradioApp().querySelectorAll(`#${tabname}_extra_tabs div.card`).forEach((elem) => {
@@ -118,14 +123,15 @@ function refreshExtraNetworks(tabname) {
   gradioApp().querySelector(`#${tabname}_extra_networks textarea`)?.dispatchEvent(new Event('input'));
 }
 
-function cardClicked(tabname, textToAdd, allowNegativePrompt) {
+function cardClicked(textToAdd, allowNegativePrompt) {
+  const tabname = getENActiveTab();
   const textarea = allowNegativePrompt ? activePromptTextarea[tabname] : gradioApp().querySelector(`#${tabname}_prompt > label > textarea`);
   if (!tryToRemoveExtraNetworkFromPrompt(textarea, textToAdd)) textarea.value = textarea.value + opts.extra_networks_add_text_separator + textToAdd;
   updateInput(textarea);
 }
 
-function saveCardPreview(event, tabname, filename) {
-  console.log('saveCardPreview', event, tabname, filename)
+function saveCardPreview(event, filename) {
+  const tabname = getENActiveTab();
   const textarea = gradioApp().querySelector(`#${tabname}_preview_filename  > label > textarea`);
   const button = gradioApp().getElementById(`${tabname}_save_preview`);
   textarea.value = filename;
@@ -135,8 +141,8 @@ function saveCardPreview(event, tabname, filename) {
   event.preventDefault();
 }
 
-function saveCardDescription(event, tabname, filename, descript) {
-  console.log('saveCardDescription', event, tabname, filename, descript);
+function saveCardDescription(event, filename, descript) {
+  const tabname = getENActiveTab();
   const textarea = gradioApp().querySelector(`#${tabname}_description_filename  > label > textarea`);
   const button = gradioApp().getElementById(`${tabname}_save_description`);
   const description = gradioApp().getElementById(`${tabname}_description`);
@@ -148,13 +154,13 @@ function saveCardDescription(event, tabname, filename, descript) {
   event.preventDefault();
 }
 
-function readCardDescription(event, tabname, filename, descript, extraPage, cardName) {
-  console.log('readCardDescription', event, tabname, filename, descript, extraPage, cardName);
+function readCardDescription(event, filename, descript, extraPage, cardName) {
+  const tabname = getENActiveTab();
   const textarea = gradioApp().querySelector(`#${tabname}_description_filename  > label > textarea`);
   const description = gradioApp().querySelector(`#${tabname}_description > label > textarea`);
   const button = gradioApp().getElementById(`${tabname}_read_description`);
   textarea.value = filename;
-  description.value = descript;
+  description.value = descript?.trim() || '';
   updateInput(textarea);
   updateInput(description);
   button.click();
@@ -162,8 +168,9 @@ function readCardDescription(event, tabname, filename, descript, extraPage, card
   event.preventDefault();
 }
 
-function extraNetworksSearchButton(tabs_id, event) {
-  searchTextarea = gradioApp().querySelector(`#${tabs_id} > div > textarea`);
+function extraNetworksSearchButton(event) {
+  const tabname = getENActiveTab();
+  searchTextarea = gradioApp().querySelector(`#${tabname}_extra_tabs > div > div > textarea`);
   button = event.target;
   text = button.classList.contains('search-all') ? '' : `/${button.textContent.trim()}/`;
   searchTextarea.value = text;

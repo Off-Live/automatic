@@ -1,17 +1,24 @@
-from diffusers import (
-    DDIMScheduler,
-    DDPMScheduler,
-    DEISMultistepScheduler,
-    DPMSolverMultistepScheduler,
-    DPMSolverSinglestepScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    HeunDiscreteScheduler,
-    # KDPM2DiscreteScheduler,
-    PNDMScheduler,
-    UniPCMultistepScheduler,
-)
+from modules.shared import opts, log
 from modules import sd_samplers_common
+
+try:
+    from diffusers import (
+        DDIMScheduler,
+        DDPMScheduler,
+        DEISMultistepScheduler,
+        DPMSolverMultistepScheduler,
+        DPMSolverSinglestepScheduler,
+        EulerAncestralDiscreteScheduler,
+        EulerDiscreteScheduler,
+        HeunDiscreteScheduler,
+        # KDPM2DiscreteScheduler,
+        PNDMScheduler,
+        UniPCMultistepScheduler,
+    )
+except Exception as e:
+    import diffusers
+    log.error(f'Diffusers import error: version={diffusers.__version__} error: {e}')
+
 
 config = {
     'All': { 'num_train_timesteps': 1000, 'beta_start': 0.0001, 'beta_end': 0.02, 'beta_schedule': 'linear', 'prediction_type': 'epsilon' },
@@ -42,8 +49,10 @@ samplers_data_diffusers = [
 
 class DiffusionSampler:
     def __init__(self, name, constructor, model, **kwargs):
-        from modules.shared import opts, log
+        self.config = {}
         self.config = config['All'].copy()
+        if not hasattr(model, 'scheduler'):
+            return
         for key, value in config.get(name, {}).items(): # diffusers defaults
             self.config[key] = value
         for key, value in model.scheduler.config.items(): # model defaults

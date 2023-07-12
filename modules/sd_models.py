@@ -77,7 +77,11 @@ class CheckpointInfo:
             if os.path.isfile(repo[0]['model_info']):
                 file_path = repo[0]['model_info']
                 with open(file_path, "r", encoding="utf-8") as json_file:
-                    self.model_info = json.load(json_file)
+                    try:
+                        self.model_info = json.load(json_file)
+                    except Exception as e:
+                        shared.log.error(f'Error loading model info: {json_file} {e}')
+                        self.model_info = {}
 
         self.shorthash = self.sha256[0:10] if self.sha256 else None
         self.title = self.name if self.shorthash is None else f'{self.name} [{self.shorthash}]'
@@ -194,6 +198,9 @@ def get_closet_checkpoint_match(search_string):
     found = sorted([info for info in checkpoints_list.values() if search_string in info.title], key=lambda x: len(x.title))
     if found:
         return found[0]
+    found = sorted([info for info in checkpoints_list.values() if search_string.split(' ')[0] in info.title], key=lambda x: len(x.title))
+    if found:
+        return found[0]
     return None
 
 
@@ -213,12 +220,12 @@ def model_hash(filename):
 
 
 def select_checkpoint(op='model'):
-    if op == 'model':
-        model_checkpoint = shared.opts.sd_model_checkpoint
-    elif op == 'dict':
+    if op == 'dict':
         model_checkpoint = shared.opts.sd_model_dict
     elif op == 'refiner':
         model_checkpoint = shared.opts.data.get('sd_model_refiner', None)
+    else:
+        model_checkpoint = shared.opts.sd_model_checkpoint
     if model_checkpoint is None or model_checkpoint == 'None':
         return None
     checkpoint_info = get_closet_checkpoint_match(model_checkpoint)
@@ -397,7 +404,8 @@ def load_model_weights(model: torch.nn.Module, checkpoint_info: CheckpointInfo, 
         model.first_stage_model = vae
         if depth_model:
             model.depth_model = depth_model
-    devices.dtype_unet = model.model.diffusion_model.dtype
+    # devices.dtype_unet = model.model.diffusion_model.dtype
+    model.model.diffusion_model.to(devices.dtype_unet)
     model.first_stage_model.to(devices.dtype_vae)
     # clean up cache if limit is reached
     while len(checkpoints_loaded) > shared.opts.sd_checkpoint_cache:
@@ -493,7 +501,6 @@ class ModelData:
         return self.sd_model
 
     def set_sd_model(self, v):
-        shared.log.debug(f"Class model: {v}")
         self.sd_model = v
 
     def get_sd_refiner(self):
@@ -561,6 +568,15 @@ class PriorPipeline:
         return result
 
 
+def change_backend():
+    shared.log.info(f'Pipeline changed: {shared.backend}')
+    unload_model_weights()
+    checkpoints_loaded.clear()
+    list_models()
+    from modules.sd_samplers import list_samplers
+    list_samplers(shared.backend)
+
+
 def load_diffuser(checkpoint_info=None, already_loaded_state_dict=None, timer=None, op='model'): # pylint: disable=unused-argument
     import torch # pylint: disable=reimported,redefined-outer-name
     if timer is None:
@@ -591,7 +607,7 @@ def load_diffuser(checkpoint_info=None, already_loaded_state_dict=None, timer=No
 
     shared.log.debug(f'Diffusers load config: {diffusers_load_config}')
     sd_model = None
-    base_sent_to_cpu=False
+
     try:
         devices.set_cuda_params()
         if shared.cmd_opts.ckpt is not None and model_data.initial: # initial load
@@ -715,32 +731,39 @@ def load_diffuser(checkpoint_info=None, already_loaded_state_dict=None, timer=No
             shared.log.debug('Diffusers: enable channels last')
             sd_model.unet.to(memory_format=torch.channels_last)
 
-        if devices.backend == 'ipex':
-            sd_model.unet.training = False
-            if shared.opts.cuda_compile and shared.opts.cuda_compile_mode == 'ipex':
-                shared.log.info("Model compile enabled: IPEX Optimize Graph Mode")
+        base_sent_to_cpu=False
+        if (shared.opts.cuda_compile and torch.cuda.is_available()) or devices.backend == 'ipex':
             if op == 'refiner':
                 gpu_vram = memory_stats().get('gpu', {})
-                if (gpu_vram.get('total', 0) - gpu_vram.get('used', 0)) >= 7 if "StableDiffusionXL" in sd_model.__class__.__name__ else 3.5:
+                free_vram = gpu_vram.get('total', 0) - gpu_vram.get('used', 0)
+                refiner_enough_vram = free_vram >= 7 if "StableDiffusionXL" in sd_model.__class__.__name__ else 3
+                if not shared.opts.diffusers_move_base and refiner_enough_vram:
                     sd_model.to(devices.device)
                     base_sent_to_cpu=False
                 else:
-                    shared.log.info(f"Not enough VRAM to optimize refiner, using RAM as fallback. Free VRAM: {gpu_vram.get('total', 0) - gpu_vram.get('used', 0)} GB")
+                    if not refiner_enough_vram and not (shared.opts.diffusers_move_base and shared.opts.diffusers_move_refiner):
+                        shared.log.warning(f"Insufficient GPU memory, using system memory as fallback: free={free_vram} GB")
+                        shared.log.debug('Enabled moving base model to CPU')
+                        shared.log.debug('Enabled moving refiner model to CPU')
+                        shared.opts.diffusers_move_base=True
+                        shared.opts.diffusers_move_refiner=True
                     shared.log.debug('Moving base model to CPU')
                     model_data.sd_model.to("cpu")
                     devices.torch_gc(force=True)
                     sd_model.to(devices.device)
                     base_sent_to_cpu=True
-                    shared.opts.diffusers_move_base=True
-                    shared.opts.diffusers_move_refiner=True
             else:
                 sd_model.to(devices.device)
+
+        if devices.backend == 'ipex':
+            sd_model.unet.training = False
+            if shared.opts.cuda_compile and shared.opts.cuda_compile_mode == 'ipex':
+                shared.log.info("Model compile enabled: IPEX Optimize Graph Mode")
             sd_model.unet = torch.xpu.optimize(sd_model.unet, dtype=devices.dtype, auto_kernel_selection=True, optimize_lstm=True, # pylint: disable=attribute-defined-outside-init
             graph_mode=True if shared.opts.cuda_compile and shared.opts.cuda_compile_mode == 'ipex' else False)
             shared.log.info("Applied IPEX Optimize")
 
-        if shared.opts.cuda_compile and torch.cuda.is_available():
-            sd_model.to(devices.device)
+        elif shared.opts.cuda_compile and torch.cuda.is_available():
             import torch._dynamo # pylint: disable=unused-import,redefined-outer-name
             log_level = logging.WARNING if shared.opts.cuda_compile_verbose else logging.CRITICAL # pylint: disable=protected-access
             torch._logging.set_logs(dynamo=log_level, aot=log_level, inductor=log_level) # pylint: disable=protected-access
@@ -757,6 +780,7 @@ def load_diffuser(checkpoint_info=None, already_loaded_state_dict=None, timer=No
         sd_model.sd_checkpoint_info = checkpoint_info # pylint: disable=attribute-defined-outside-init
         sd_model.sd_model_checkpoint = checkpoint_info.filename # pylint: disable=attribute-defined-outside-init
         sd_model.sd_model_hash = checkpoint_info.hash # pylint: disable=attribute-defined-outside-init
+        sd_model.set_progress_bar_config(bar_format='Progress {rate_fmt}{postfix} {bar} {percentage:3.0f}% {elapsed} {remaining}', ncols=80, colour='#327fba')
         if op == 'refiner' and shared.opts.diffusers_move_refiner:
             shared.log.debug('Moving refiner model to CPU')
             sd_model.to("cpu")
@@ -803,12 +827,21 @@ def set_diffuser_pipe(pipe, new_pipe_type):
 
     pipe_name = pipe.__class__.__name__
     pipe_name = pipe_name.replace("Img2Img", "").replace("Inpaint", "")
+    new_pipe_cls_str = None
     if new_pipe_type == DiffusersTaskType.TEXT_2_IMAGE:
         new_pipe_cls_str = pipe_name
     elif new_pipe_type == DiffusersTaskType.IMAGE_2_IMAGE:
-        new_pipe_cls_str = pipe_name.replace("Pipeline", "Img2ImgPipeline")
+        tmp_pipe_name = pipe_name.replace("Pipeline", "Img2ImgPipeline")
+        if hasattr(diffusers, tmp_pipe_name):
+            new_pipe_cls_str = pipe_name.replace("Pipeline", "Img2ImgPipeline")
     elif new_pipe_type == DiffusersTaskType.INPAINTING:
-        new_pipe_cls_str = pipe_name.replace("Pipeline", "InpaintPipeline")
+        tmp_pipe_name = pipe_name.replace("Pipeline", "InpaintPipeline")
+        if hasattr(diffusers, tmp_pipe_name):
+            new_pipe_cls_str = pipe_name.replace("Pipeline", "InpaintPipeline")
+
+    if new_pipe_cls_str is None:
+        shared.log.warning(f'Diffusers unknown pipeline: {tmp_pipe_name}')
+        new_pipe_cls_str = pipe_name
 
     new_pipe_cls = getattr(diffusers, new_pipe_cls_str)
 

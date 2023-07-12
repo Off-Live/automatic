@@ -18,7 +18,7 @@ from installer import git_commit
 import modules.sd_hijack
 from modules import devices, prompt_parser, masking, sd_samplers, lowvram, generation_parameters_copypaste, script_callbacks, extra_networks, sd_vae_approx, scripts, sd_samplers_common # pylint: disable=unused-import
 from modules.sd_hijack import model_hijack
-from modules.shared import opts, cmd_opts, state, log, backend, Backend
+from modules.shared import opts, cmd_opts, state, log, Backend
 import modules.shared as shared
 import modules.paths as paths
 import modules.face_restoration
@@ -149,7 +149,6 @@ class StableDiffusionProcessing:
         self.is_hr_pass = False
         opts.data['clip_skip'] = clip_skip
 
-
     @property
     def sd_model(self):
         return shared.sd_model
@@ -223,16 +222,15 @@ class StableDiffusionProcessing:
         source_image = devices.cond_cast_float(source_image)
         # HACK: Using introspection as the Depth2Image model doesn't appear to uniquely
         # identify itself with a field common to all models. The conditioning_key is also hybrid.
-        if backend == Backend.DIFFUSERS:
+        if shared.backend == Backend.DIFFUSERS:
             log.warning('Diffusers not implemented: img2img_image_conditioning')
-            return None
         if isinstance(self.sd_model, LatentDepth2ImageDiffusion):
             return self.depth2img_image_conditioning(source_image)
-        if self.sd_model.cond_stage_key == "edit":
+        if hasattr(self.sd_model, 'cond_stage_key') and self.sd_model.cond_stage_key == "edit":
             return self.edit_image_conditioning(source_image)
-        if self.sampler.conditioning_key in {'hybrid', 'concat'}:
+        if hasattr(self.sampler, 'conditioning_key') and self.sampler.conditioning_key in {'hybrid', 'concat'}:
             return self.inpainting_image_conditioning(source_image, latent_image, image_mask=image_mask)
-        if self.sampler.conditioning_key == "crossattn-adm":
+        if hasattr(self.sampler, 'conditioning_key') and self.sampler.conditioning_key == "crossattn-adm":
             return self.unclip_image_conditioning(source_image)
         # Dummy zero conditioning if we're not using inpainting or depth model.
         return latent_image.new_zeros(latent_image.shape[0], 5, 1, 1)
@@ -563,7 +561,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
     seed = get_fixed_seed(p.seed)
     subseed = get_fixed_seed(p.subseed)
-    if backend == Backend.ORIGINAL:
+    if shared.backend == Backend.ORIGINAL:
         modules.sd_hijack.model_hijack.apply_circular(p.tiling)
         modules.sd_hijack.model_hijack.clear_comments()
     comments = {}
@@ -614,11 +612,11 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
         cache[0] = (required_prompts, steps)
         return cache[1]
 
-    ema_scope_context = p.sd_model.ema_scope if backend == Backend.ORIGINAL else nullcontext
+    ema_scope_context = p.sd_model.ema_scope if shared.backend == Backend.ORIGINAL else nullcontext
     with torch.no_grad(), ema_scope_context():
         with devices.autocast():
             p.init(p.all_prompts, p.all_seeds, p.all_subseeds)
-            if shared.opts.live_previews_enable and opts.show_progress_type == "Approximate NN" and backend == Backend.ORIGINAL:
+            if shared.opts.live_previews_enable and opts.show_progress_type == "Approximate NN" and shared.backend == Backend.ORIGINAL:
                 sd_vae_approx.model()
         if state.job_count == -1:
             state.job_count = p.n_iter
@@ -656,7 +654,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if p.n_iter > 1:
                 shared.state.job = f"Batch {n+1} out of {p.n_iter}"
 
-            if backend == Backend.ORIGINAL:
+            if shared.backend == Backend.ORIGINAL:
                 uc = get_conds_with_caching(prompt_parser.get_learned_conditioning, negative_prompts, p.steps * step_multiplier, cached_uc)
                 c = get_conds_with_caching(prompt_parser.get_multicond_learned_conditioning, prompts, p.steps * step_multiplier, cached_c)
                 if len(model_hijack.comments) > 0:
@@ -683,7 +681,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
                 del samples_ddim
 
-            elif backend == Backend.DIFFUSERS:
+            elif shared.backend == Backend.DIFFUSERS:
                 generator_device = 'cpu' if shared.opts.diffusers_generator_device == "cpu" else shared.device
                 generator = [torch.Generator(generator_device).manual_seed(s) for s in seeds]
                 if (not hasattr(shared.sd_model.scheduler, 'name')) or (shared.sd_model.scheduler.name != p.sampler_name):
@@ -713,18 +711,19 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                     shared.state.set_current_image()
 
                 shared.sd_model.to(devices.device)
-                output = shared.sd_model( # pylint: disable=not-callable
-                    prompt=prompts,
-                    negative_prompt=negative_prompts,
-                    num_inference_steps=p.steps,
-                    guidance_scale=p.cfg_scale,
-                    generator=generator,
-                    callback_steps = 1,
-                    callback = diffusers_callback,
-                    output_type='np' if shared.sd_refiner is None else 'latent',
-                    cross_attention_kwargs=cross_attention_kwargs,
-                    **task_specific_kwargs
-                )
+
+                pipe_args = { # TODO needs dynamic discovery of possible args
+                    "prompt": prompts,
+                    "negative_prompt": negative_prompts,
+                    "num_inference_steps": p.steps,
+                    "guidance_scale": p.cfg_scale,
+                    "generator": generator,
+                    "output_type": 'np' if shared.sd_refiner is None else 'latent',
+                    "callback_steps": 1, # TODO not supported by Kandinsky
+                    "callback": diffusers_callback, # TODO not supported by Kandinsky
+                    "cross_attention_kwargs": cross_attention_kwargs, # TODO not supported by Kandinsky
+                }
+                output = shared.sd_model(**pipe_args, **task_specific_kwargs) # pylint: disable=not-callable
 
                 if shared.sd_refiner is not None:
                     if shared.opts.diffusers_move_base:
@@ -733,33 +732,23 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                     shared.sd_refiner.to(devices.device)
                     devices.torch_gc()
                     init_image = output.images[0]
-                    output = shared.sd_refiner( # pylint: disable=not-callable
-                        prompt=prompts,
-                        negative_prompt=negative_prompts,
-                        num_inference_steps=p.steps,
-                        guidance_scale=p.cfg_scale,
-                        generator=generator,
-                        callback_steps = 1,
-                        callback = diffusers_callback,
-                        output_type='np',
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        image=init_image
-                    )
+                    pipe_args['image'] = init_image
+                    pipe_args['output_type'] = 'np'
+                    output = shared.sd_refiner(**pipe_args) # pylint: disable=not-callable
                     if shared.opts.diffusers_move_refiner:
                         shared.log.debug('Moving refiner model to CPU')
                         shared.sd_refiner.to('cpu')
 
-
                 x_samples_ddim = output.images
 
-                if p.enable_hr:
+                if p.is_hr_pass:
                     log.warning('Diffusers not implemented: hires fix')
 
                 if lora_state['active']:
                     unload_diffusers_lora()
 
             else:
-                raise ValueError(f"Unknown backend {backend}")
+                raise ValueError(f"Unknown backend {shared.backend}")
 
             if shared.cmd_opts.lowvram or shared.cmd_opts.medvram:
                 lowvram.send_everything_to_cpu()
@@ -769,7 +758,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
             for i, x_sample in enumerate(x_samples_ddim):
                 p.batch_index = i
-                if backend == Backend.ORIGINAL:
+                if shared.backend == Backend.ORIGINAL:
                     x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
                     x_sample = x_sample.astype(np.uint8)
                 else:
@@ -884,7 +873,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         self.applied_old_hires_behavior_to = None
 
     def init(self, all_prompts, all_seeds, all_subseeds):
-        if backend == Backend.DIFFUSERS:
+        if shared.backend == Backend.DIFFUSERS:
             sd_models.set_diffuser_pipe(self.sd_model, sd_models.DiffusersTaskType.TEXT_2_IMAGE)
 
         self.width = self.width or 512
@@ -957,7 +946,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
             self.restore_faces = orig2
             images.save_image(image, self.outpath_samples, "", seeds[index], prompts[index], opts.samples_format, info=info, suffix="-before-highres-fix")
 
-        if backend == Backend.DIFFUSERS:
+        if shared.backend == Backend.DIFFUSERS:
             sd_models.set_diffuser_pipe(self.sd_model, sd_models.DiffusersTaskType.TEXT_2_IMAGE)
 
         self.sampler = sd_samplers.create_sampler(self.sampler_name, self.sd_model)
@@ -1051,9 +1040,9 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
 
     def init(self, all_prompts, all_seeds, all_subseeds):
         image_mask = self.image_mask
-        if backend == Backend.DIFFUSERS and image_mask is None:
+        if shared.backend == Backend.DIFFUSERS and image_mask is None:
             sd_models.set_diffuser_pipe(self.sd_model, sd_models.DiffusersTaskType.IMAGE_2_IMAGE)
-        elif backend == Backend.DIFFUSERS and image_mask is not None:
+        elif shared.backend == Backend.DIFFUSERS and image_mask is not None:
             sd_models.set_diffuser_pipe(self.sd_model, sd_models.DiffusersTaskType.INPAINTING)
             self.sd_model.dtype = self.sd_model.unet.dtype
 
@@ -1127,11 +1116,11 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
         image = 2. * image - 1.
         image = image.to(shared.device)
 
-        if backend == Backend.ORIGINAL:
+        if shared.backend == Backend.ORIGINAL:
             self.init_latent = self.sd_model.get_first_stage_encoding(self.sd_model.encode_first_stage(image))
         else:
-            # we don't pre-encode the latents for diffusers to allow the UI to stay general for different model types
-            self.init_latent = None
+            # TODO Diffusers don't pre-encode the latents for diffusers to allow the UI to stay general for different model types
+            self.init_latent = torch.Tensor(1)
 
         if self.resize_mode == 3:
             self.init_latent = torch.nn.functional.interpolate(self.init_latent, size=(self.height // opt_f, self.width // opt_f), mode="bilinear")
@@ -1152,7 +1141,7 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
         self.image_conditioning = self.img2img_image_conditioning(image, self.init_latent, image_mask)
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
-        if backend == Backend.DIFFUSERS:
+        if shared.backend == Backend.DIFFUSERS:
             if self.init_mask is None: # pylint: disable=no-member
                 sd_models.set_diffuser_pipe(self.sd_model, sd_models.DiffusersTaskType.IMAGE_2_IMAGE)
             else:
