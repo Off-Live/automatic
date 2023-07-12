@@ -245,6 +245,8 @@ class Api:
         unit.image = np.array(decode_base64_to_image(req.controlnet_image))
         unit.pixel_perfect = req.controlnet_pixel_perfect
         unit.weight = req.controlnet_weight
+        unit.loopback = req.controlnet_loopback
+        unit.control_mode = req.controlnet_control_mode
 
 
     def text2imgapi(self, txt2imgreq: models.StableDiffusionTxt2ImgProcessingAPI):
@@ -274,6 +276,8 @@ class Api:
         args.pop('controlnet_pixel_perfect', None)
         args.pop('controlnet_weight', None)
         args.pop('controlnet_image', None)
+        args.pop('controlnet_loopback', None)
+        args.pop('controlnet_control_mode', None)
 
         with self.queue_lock:
             p = StableDiffusionProcessingTxt2Img(sd_model=shared.sd_model, **args)
@@ -328,6 +332,8 @@ class Api:
         args.pop('controlnet_pixel_perfect', None)
         args.pop('controlnet_weight', None)
         args.pop('controlnet_image', None)
+        args.pop('controlnet_loopback', None)
+        args.pop('controlnet_control_mode', None)
 
         with self.queue_lock:
             p = StableDiffusionProcessingImg2Img(sd_model=shared.sd_model, **args)

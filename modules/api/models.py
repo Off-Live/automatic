@@ -106,7 +106,9 @@ StableDiffusionTxt2ImgProcessingAPI = PydanticModelGenerator(
         {"key": "controlnet_module", "type":str, "default":None},
         {"key": "controlnet_pixel_perfect", "type":bool, "default":False},
         {"key": "controlnet_weight", "type":float, "default":1.0},
-        {"key": "controlnet_image", "type":str ,"default":None}
+        {"key": "controlnet_image", "type":str ,"default":None},
+        {"key": "controlnet_loopback", "type":bool, "default":True},
+        {"key": "controlnet_control_mode", "type":int, "default":0}
     ]
 ).generate_model()
 
@@ -129,7 +131,9 @@ StableDiffusionImg2ImgProcessingAPI = PydanticModelGenerator(
         {"key": "controlnet_module", "type":str, "default":None},
         {"key": "controlnet_pixel_perfect", "type":bool, "default":False},
         {"key": "controlnet_weight", "type":float, "default":1.0},
-        {"key": "controlnet_image", "type":str ,"default":None}
+        {"key": "controlnet_image", "type":str ,"default":None},
+        {"key": "controlnet_loopback", "type":bool, "default":True},
+        {"key": "controlnet_control_mode", "type":int, "default":0}
     ]
 ).generate_model()
 
