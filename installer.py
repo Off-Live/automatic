@@ -556,10 +556,11 @@ def install_submodules():
         git('fetch --all')
         git('reset --hard origin/temporal-net')
         git('checkout temporal-net')
-        txt = git('submodule')
         log.info('Continuing setup')
     git('submodule --quiet update --init --recursive')
     git('submodule --quiet sync --recursive')
+    txt = git('submodule')
+    print(txt)
     submodules = txt.splitlines()
     for submodule in submodules:
         try:
