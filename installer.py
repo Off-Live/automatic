@@ -559,8 +559,6 @@ def install_submodules():
         log.info('Continuing setup')
     git('submodule --quiet update --init --recursive')
     git('submodule --quiet sync --recursive')
-    txt = git('submodule')
-    print(txt)
     submodules = txt.splitlines()
     for submodule in submodules:
         try:
