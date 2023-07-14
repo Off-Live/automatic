@@ -22,7 +22,8 @@
   ignore = dirty
 [submodule "extensions-builtin/sd-webui-controlnet"]
   path = extensions-builtin/sd-webui-controlnet
-  url = https://github.com/Mikubill/sd-webui-controlnet
+  url = https://github.com/Off-Live/sd-webui-controlnet
+  branch = temporal-net
   ignore = dirty
 [submodule "modules/lycoris"]
   path = modules/lycoris
